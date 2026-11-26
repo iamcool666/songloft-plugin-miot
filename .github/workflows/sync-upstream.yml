@@ -32,7 +32,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/songloft-org/songloft-plugin-miot.git
           git fetch origin main
-          git fetch upstream main
+          git fetch upstream main:refs/remotes/upstream/main
 
           if git merge-base --is-ancestor upstream/main HEAD; then
             echo "Fork is already up to date with upstream."
