@@ -43,7 +43,10 @@ export function isVersionCommit(author, subject) {
 }
 
 function hasPackageChanges(paths) {
-  return paths.some(path => !/^docs\//.test(path) && !/\.mdx?$/i.test(path));
+  // Fork-only release plumbing and distribution metadata must not create plugin releases.
+  return paths.some(path => !/^docs\//.test(path) && !/\.mdx?$/i.test(path) &&
+    path !== 'plugin.json' && path !== 'scripts/release-plugin.mjs' &&
+    !path.startsWith('.github/workflows/'));
 }
 
 export function releaseSource(body = '') {
@@ -76,6 +79,8 @@ export function releasePending({ root, repository, toolchain, now = () => new Da
       const current = readJSON(join(root, 'plugin.json'));
       Object.assign(current, {
         version, releaseSource: source,
+        homepage: `https://github.com/${repository}`,
+        updateUrl: `https://raw.githubusercontent.com/${repository}/main/plugin.json`,
         download_url: `https://github.com/${repository}/releases/download/v${version}/${current.entryPath}.jsplugin.zip`,
         entryHash: manifest.entryHash, zipHash: manifest.zipHash,
       });
@@ -116,6 +121,8 @@ export function releasePending({ root, repository, toolchain, now = () => new Da
       const manifest = readJSON(join(snapshot, 'plugin.json'));
       manifest.version = version;
       manifest.releaseSource = source;
+      manifest.homepage = `https://github.com/${repository}`;
+      manifest.updateUrl = `https://raw.githubusercontent.com/${repository}/main/plugin.json`;
       manifest.download_url = `https://github.com/${repository}/releases/download/v${version}/${manifest.entryPath}.jsplugin.zip`;
       writeJSON(join(snapshot, 'plugin.json'), manifest);
       const pkg = readJSON(join(snapshot, 'package.json'));
