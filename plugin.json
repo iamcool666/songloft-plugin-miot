@@ -28,7 +28,7 @@
   "updateUrl": "https://raw.githubusercontent.com/iamcool666/songloft-plugin-miot/main/plugin.json",
   "download_url": "https://github.com/iamcool666/songloft-plugin-miot/releases/download/v2026.11.26.0/miot.jsplugin.zip",
   "entryHash": "f8224a2c2ea806f0f4378c54a452a4e410203d649643bf37716fd06541f64838",
-  "zipHash": "50f4888bdfe42c03f188152bc88eb105699403da9a874efe67bf809179b6e284",
+  "zipHash": "ed2f55d9ff03df34fac4c636d2c87af7cccc9cae4199b74eb836b9ac77d8d568",
   "releaseSource": "b34b34fd0c0edcb0440bbec68a5d1b62e68785ef",
   "staticHash": false
 }
