@@ -77,7 +77,7 @@ export function releasePending({ root, repository, toolchain, now = () => new Da
   const baseline = JSON.parse(git('show', 'origin/main:plugin.json'));
   const baselineTag = `v${baseline.version}`;
   const baselineReleases = JSON.parse(
-    gh('api', '--paginate', '--slurp', `repos/${repository}/releases?per_page=100'),
+    gh('api', '--paginate', '--slurp', `repos/${repository}/releases?per_page=100`),
   ).flat();
   const baselinePublished = baselineReleases.some(release =>
     release.tag_name === baselineTag && !release.draft && !release.prerelease);
@@ -106,7 +106,7 @@ export function releasePending({ root, repository, toolchain, now = () => new Da
         run('npm', ['run', 'validate'], snapshot, false);
         run('npx', ['tsc', '--noEmit'], snapshot, false);
         run('npm', ['run', 'typecheck', '--prefix', 'frontend'], snapshot, false);
-        const testFiles = run('git', ['ls-files', 'tests/*.test.mjs'], snapshot).split('\\n').filter(Boolean);
+        const testFiles = run('git', ['ls-files', 'tests/*.test.mjs'], snapshot).split('\n').filter(Boolean);
         run('node', ['--experimental-strip-types', '--test', ...testFiles], snapshot, false);
         run('npm', ['test', '--prefix', 'frontend'], snapshot, false);
       }
@@ -114,13 +114,13 @@ export function releasePending({ root, repository, toolchain, now = () => new Da
       Object.assign(manifest, { entryHash: built.entryHash, zipHash: built.zipHash });
       writeJSON(join(snapshot, 'plugin.json'), manifest);
       run('git', ['add', 'plugin.json', 'package.json'], snapshot);
-      run('git', ['commit', '-m', `chore(release): bump to ${baselineTag}\\n\\nSource commit: ${source}`], snapshot);
+      run('git', ['commit', '-m', `chore(release): bump to ${baselineTag}\n\nSource commit: ${source}`], snapshot);
       const tagExists = git('tag', '--list', baselineTag) === baselineTag;
       if (tagExists) throw new Error(`Tag ${baselineTag} exists but its release is missing; refusing to overwrite it`);
       run('git', ['push', 'origin', `HEAD:refs/tags/${baselineTag}`], snapshot);
       gh('release', 'create', baselineTag, join(snapshot, `dist/${manifest.entryPath}.jsplugin.zip`),
         '--repo', repository, '--verify-tag', '--latest', '--title', baselineTag,
-        '--notes', `Fork baseline release ${baselineTag}\\n\\nSource commit: ${source}`);
+        '--notes', `Fork baseline release ${baselineTag}\n\nSource commit: ${source}`);
       markPublished(source, baseline.version, manifest);
       published.push({ source, version: baseline.version, bootstrap: true });
     } finally { git('worktree', 'remove', '--force', snapshot); }
