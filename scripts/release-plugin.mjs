@@ -71,6 +71,61 @@ export function releasePending({ root, repository, toolchain, now = () => new Da
   git('config', 'user.email', 'github-actions[bot]@users.noreply.github.com');
   const published = [];
 
+  // Fork bootstrap: the manifest may already describe a version whose asset has not
+  // yet been published in this repository. Publish that baseline before processing updates.
+  git('fetch', 'origin', 'main', '--tags');
+  const baseline = JSON.parse(git('show', 'origin/main:plugin.json'));
+  const baselineTag = `v${baseline.version}`;
+  const baselineReleases = JSON.parse(
+    gh('api', '--paginate', '--slurp', `repos/${repository}/releases?per_page=100'),
+  ).flat();
+  const baselinePublished = baselineReleases.some(release =>
+    release.tag_name === baselineTag && !release.draft && !release.prerelease);
+  if (!baselinePublished) {
+    const source = baseline.releaseSource;
+    if (!/^[a-f0-9]{40}$/.test(source || '')) throw new Error('Invalid bootstrap release source');
+    git('merge-base', '--is-ancestor', source, 'origin/main');
+    const snapshot = join(plugins, 'src', `bootstrap-${source}`);
+    git('worktree', 'add', '--detach', snapshot, source);
+    try {
+      const manifest = readJSON(join(snapshot, 'plugin.json'));
+      manifest.version = baseline.version;
+      manifest.releaseSource = source;
+      manifest.homepage = `https://github.com/${repository}`;
+      manifest.updateUrl = `https://raw.githubusercontent.com/${repository}/main/plugin.json`;
+      manifest.download_url = `https://github.com/${repository}/releases/download/${baselineTag}/${manifest.entryPath}.jsplugin.zip`;
+      writeJSON(join(snapshot, 'plugin.json'), manifest);
+      const pkg = readJSON(join(snapshot, 'package.json'));
+      pkg.version = baseline.version;
+      writeJSON(join(snapshot, 'package.json'), pkg);
+      if (build) build(snapshot, source, baseline.version);
+      else {
+        run('npm', ['ci'], snapshot, false);
+        run('npm', ['ci', '--prefix', 'frontend'], snapshot, false);
+        run('npm', ['run', 'build'], snapshot, false);
+        run('npm', ['run', 'validate'], snapshot, false);
+        run('npx', ['tsc', '--noEmit'], snapshot, false);
+        run('npm', ['run', 'typecheck', '--prefix', 'frontend'], snapshot, false);
+        const testFiles = run('git', ['ls-files', 'tests/*.test.mjs'], snapshot).split('\\n').filter(Boolean);
+        run('node', ['--experimental-strip-types', '--test', ...testFiles], snapshot, false);
+        run('npm', ['test', '--prefix', 'frontend'], snapshot, false);
+      }
+      const built = readJSON(join(snapshot, 'dist/_build/plugin.json'));
+      Object.assign(manifest, { entryHash: built.entryHash, zipHash: built.zipHash });
+      writeJSON(join(snapshot, 'plugin.json'), manifest);
+      run('git', ['add', 'plugin.json', 'package.json'], snapshot);
+      run('git', ['commit', '-m', `chore(release): bump to ${baselineTag}\\n\\nSource commit: ${source}`], snapshot);
+      const tagExists = git('tag', '--list', baselineTag) === baselineTag;
+      if (tagExists) throw new Error(`Tag ${baselineTag} exists but its release is missing; refusing to overwrite it`);
+      run('git', ['push', 'origin', `HEAD:refs/tags/${baselineTag}`], snapshot);
+      gh('release', 'create', baselineTag, join(snapshot, `dist/${manifest.entryPath}.jsplugin.zip`),
+        '--repo', repository, '--verify-tag', '--latest', '--title', baselineTag,
+        '--notes', `Fork baseline release ${baselineTag}\\n\\nSource commit: ${source}`);
+      markPublished(source, baseline.version, manifest);
+      published.push({ source, version: baseline.version, bootstrap: true });
+    } finally { git('worktree', 'remove', '--force', snapshot); }
+  }
+
   function markPublished(source, version, manifest) {
     // main 可能已收到后续业务提交。只同步发布元数据，快进冲突时重新应用。
     for (let attempt = 0; attempt < 3; attempt++) {
