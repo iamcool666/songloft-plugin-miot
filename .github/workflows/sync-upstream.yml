@@ -1,0 +1,88 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch upstream and merge source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/songloft-org/songloft-plugin-miot.git
+          git fetch origin main
+          git fetch upstream main
+
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Fork is already up to date with upstream."
+            exit 0
+          fi
+
+          # Keep fork-specific release plumbing before merging upstream's source tree.
+          mkdir -p /tmp/fork-config
+          cp scripts/release-plugin.mjs /tmp/fork-config/release-plugin.mjs
+          cp .github/workflows/release.yml /tmp/fork-config/release.yml
+          cp .github/workflows/sync-upstream.yml /tmp/fork-config/sync-upstream.yml
+          git show HEAD:plugin.json > /tmp/fork-config/plugin.json
+          git show upstream/main:plugin.json > /tmp/fork-config/upstream-plugin.json
+
+          # Upstream wins source-code conflicts; fork-owned publishing files are restored below.
+          git merge --no-commit --no-ff -X theirs upstream/main
+
+          mkdir -p scripts .github/workflows
+          cp /tmp/fork-config/release-plugin.mjs scripts/release-plugin.mjs
+          cp /tmp/fork-config/release.yml .github/workflows/release.yml
+          cp /tmp/fork-config/sync-upstream.yml .github/workflows/sync-upstream.yml
+
+          # Take current plugin capabilities/metadata from upstream, but retain the fork's
+          # version lineage and hashes so the installed plugin never points back upstream.
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+
+          const local = JSON.parse(readFileSync('/tmp/fork-config/plugin.json', 'utf8'));
+          const upstream = JSON.parse(readFileSync('/tmp/fork-config/upstream-plugin.json', 'utf8'));
+          const repository = process.env.GITHUB_REPOSITORY;
+          const manifest = {
+            ...upstream,
+            version: local.version,
+            releaseSource: local.releaseSource,
+            entryHash: local.entryHash,
+            zipHash: local.zipHash,
+            staticHash: local.staticHash,
+            homepage: `https://github.com/${repository}`,
+            updateUrl: `https://raw.githubusercontent.com/${repository}/main/plugin.json`,
+          };
+          manifest.download_url =
+            `https://github.com/${repository}/releases/download/v${manifest.version}/${manifest.entryPath}.jsplugin.zip`;
+          writeFileSync('plugin.json', JSON.stringify(manifest, null, 2) + '\n');
+          NODE
+
+          git add -A
+          git commit --allow-empty -m "chore(sync): merge upstream songloft-plugin-miot"
+          git push origin HEAD:main
+
+      - name: Start fork release workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run release.yml --ref main
